@@ -1,1 +1,0 @@
-# pinn-symbolic-regression
