@@ -19,6 +19,7 @@ COLUMNS = ["totale_positivi", "dimessi_guariti", "deceduti", "totale_casi"]
 ROOT = Path(__file__).resolve().parents[2]
 RAW_DIR = ROOT / "data" / "raw"
 PROCESSED_DIR = ROOT / "data" / "processed"
+RESULTS_DIR = ROOT / "results"
 
 
 def download_dpc(dest_dir: Path = RAW_DIR, overwrite: bool = False) -> Path:
