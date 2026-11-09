@@ -27,6 +27,11 @@ pip install -e ".[dev]"
 pytest
 ```
 
+## Download dati 
+```bash
+python -m src.seird_gp.data 
+```
+
 ## Modello
 
 SEIRD con popolazione costante N:
