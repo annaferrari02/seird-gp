@@ -1,9 +1,10 @@
 import numpy as np
 
 from seird_gp import SEIRDParams, simulate
+from seird_gp.data import TRENTO_POPULATION
 
 PARAMS = SEIRDParams(sigma=1 / 5, gamma=1 / 10, mu=0.002)
-Y0 = np.array([540_000.0, 50.0, 20.0, 0.0, 0.0])  # ordine di grandezza della P.A. Trento
+Y0 = np.array([TRENTO_POPULATION - 70.0, 50.0, 20.0, 0.0, 0.0])
 T = np.arange(0, 120, 1.0)
 
 
