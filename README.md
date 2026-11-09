@@ -1,6 +1,6 @@
 # seird-gp
 
-Genetic programming per far evolvere β(t) di un modello SEIRD sui dati COVID-19 della Provincia Autonoma di Trento, con la mobilità come variabile di input. Punto di partenza: il lavoro di Pianesi e Pojer.
+Genetic programming per far evolvere β(t) di un modello SEIRD sui dati COVID-19 della Provincia Autonoma di Trento, con la mobilità come variabile di input.
 
 ## Struttura
 
