@@ -16,6 +16,7 @@ results/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep
 !results/.gitkeep
+data/*
 
 # Letteratura (PDF con copyright)
 literature/
