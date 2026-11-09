@@ -52,6 +52,57 @@ def build_trento_dataset(overwrite: bool = False) -> pd.DataFrame:
     return df
 
 
+# --- Mobilità (Google COVID-19 Community Mobility Reports) -----------------
+# I CSV vanno scaricati a mano da
+# https://www.gstatic.com/covid19/mobility/Region_Mobility_Report_CSVs.zip
+# e messi in data/raw/ come 2020_IT_Region_Mobility_Report.csv, 2021_..., 2022_...
+
+TRENTO_ISO = "IT-TN"
+MOBILITY_SUFFIX = "_percent_change_from_baseline"
+MOBILITY_COLUMNS = [
+    "retail_and_recreation",
+    "grocery_and_pharmacy",
+    "parks",
+    "transit_stations",
+    "workplaces",
+    "residential",
+]
+
+
+def load_mobility(raw_dir: Path = RAW_DIR) -> pd.DataFrame:
+    """Legge i report Google italiani e tiene la P.A. Trento.
+
+    Valori = variazione % rispetto alla baseline (mediana gen-feb 2020 per giorno della settimana).
+    I valori mancanti restano NaN: l'eventuale imputazione si decide a valle.
+    """
+    files = sorted(raw_dir.glob("20*_IT_Region_Mobility_Report.csv"))
+    if not files:
+        raise FileNotFoundError(f"Nessun report di mobilità in {raw_dir}")
+    df = pd.concat(pd.read_csv(f, low_memory=False) for f in files)
+    df = df[df["iso_3166_2_code"] == TRENTO_ISO]
+    df = df.rename(columns={c + MOBILITY_SUFFIX: c for c in MOBILITY_COLUMNS})
+    df["date"] = pd.to_datetime(df["date"])
+    df = df.set_index("date").sort_index()[MOBILITY_COLUMNS]
+    df.index.name = "data"
+    if df.index.duplicated().any():
+        raise ValueError("Date duplicate nei dati di mobilità")
+    return df
+
+
+def build_merged_dataset() -> pd.DataFrame:
+    """Unisce COVID e mobilità sui giorni in comune; salva data/processed/trento_merged.csv."""
+    covid = build_trento_dataset()
+    merged = covid.join(load_mobility(), how="inner")
+    merged.to_csv(PROCESSED_DIR / "trento_merged.csv")
+    return merged
+
+
 if __name__ == "__main__":
     out = build_trento_dataset()
-    print(f"{len(out)} giorni, dal {out.index.min().date()} al {out.index.max().date()}")
+    print(f"COVID: {len(out)} giorni, dal {out.index.min().date()} al {out.index.max().date()}")
+    try:
+        m = build_merged_dataset()
+        print(f"Unito con mobilità: {len(m)} giorni, "
+              f"dal {m.index.min().date()} al {m.index.max().date()}")
+    except FileNotFoundError as e:
+        print(f"Mobilità saltata: {e}")
