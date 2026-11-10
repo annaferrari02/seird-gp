@@ -1,7 +1,9 @@
 """Fitting del SEIRD con β costante (baseline) su una finestra temporale.
 
-Fitness come in Pianesi e Pojer: 0.9 * RMSD(decessi) + 0.1 * RMSD(infetti),
+Fitness di default come in Pianesi e Pojer: 0.9 * RMSD(decessi) + 0.1 * RMSD(infetti),
 dove D si confronta con `deceduti` e I con `totale_positivi`.
+In alternativa `normalized_fitness`: ogni RMSD diviso per la deviazione standard dei dati
+di training, così i due termini hanno la stessa scala.
 Ottimizzatore: differential evolution (scipy), un algoritmo evolutivo.
 """
 
@@ -24,6 +26,13 @@ DEFAULT_BOUNDS = {
     "gamma": (1 / 60, 1 / 3),   # uscita da I verso R: 3-60 giorni (i guariti DPC sono lenti)
     "mu": (0.0, 0.05),
 }
+
+# Parametri da letteratura
+# Incubazione media 5.2 giorni (IC 95% 4.1-7.0): Li et al., NEJM 2020, doi:10.1056/NEJMoa2001316
+SIGMA_LIT = 1 / 5.2
+
+# Pesi della fitness normalizzata: nessuna preferenza a priori fra decessi e positivi
+NORM_WEIGHTS = {"deceduti": 0.5, "totale_positivi": 0.5}
 
 
 @dataclass
@@ -62,6 +71,25 @@ def rmsd(a, b) -> float:
 def fitness(sim: pd.DataFrame, obs: pd.DataFrame, weights=WEIGHTS) -> float:
     return (weights["deceduti"] * rmsd(sim["D"], obs["deceduti"])
             + weights["totale_positivi"] * rmsd(sim["I"], obs["totale_positivi"]))
+
+
+def data_scale(obs: pd.DataFrame, cols=tuple(NORM_WEIGHTS)) -> dict:
+    """Deviazione standard di ogni serie osservata (minimo 1, per serie quasi piatte)."""
+    return {c: max(float(obs[c].std()), 1.0) for c in cols}
+
+
+def normalized_fitness(sim: pd.DataFrame, obs: pd.DataFrame, weights=NORM_WEIGHTS,
+                       scale: dict | None = None) -> float:
+    """Media pesata di RMSD(D)/std(decessi) e RMSD(I)/std(positivi).
+
+    Durante il fit `obs` è il training, quindi la scala è quella del training.
+    Per valutare il test passare `scale` calcolata sul training, così train e test
+    sono misurati con lo stesso metro.
+    """
+    scale = scale or data_scale(obs, tuple(weights))
+    return (weights["deceduti"] * rmsd(sim["D"], obs["deceduti"]) / scale["deceduti"]
+            + weights["totale_positivi"] * rmsd(sim["I"], obs["totale_positivi"])
+            / scale["totale_positivi"])
 
 
 def relative_fitness(sim: pd.DataFrame, obs: pd.DataFrame) -> float:
@@ -108,6 +136,7 @@ def fit_baseline(df: pd.DataFrame, start: str, end: str, train_frac: float = 1.0
     sim = simulate_window(res.x, obs, N)
 
     periods = {"train": slice(None, n_train), "test": slice(n_train, None)}
+    train_scale = data_scale(train)
     table = {}
     for period, sl in periods.items():
         if len(obs.iloc[sl]) == 0:
@@ -116,6 +145,7 @@ def fit_baseline(df: pd.DataFrame, start: str, end: str, train_frac: float = 1.0
             "D": rmsd(sim["D"].iloc[sl], obs["deceduti"].iloc[sl]),
             "I": rmsd(sim["I"].iloc[sl], obs["totale_positivi"].iloc[sl]),
             "fitness": fitness(sim.iloc[sl], obs.iloc[sl]),
+            "fitness_norm": normalized_fitness(sim.iloc[sl], obs.iloc[sl], scale=train_scale),
         }
     return FitResult(
         params=dict(zip(PARAM_NAMES, res.x)),
