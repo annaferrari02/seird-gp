@@ -4,7 +4,7 @@ import pytest
 
 from seird_gp.fitting import (
     TRENTO_POPULATION, data_scale, fit_baseline, initial_state, normalized_fitness,
-    simulate_window,
+    pianesi_pojer_fitness, simulate_window,
 )
 
 TRUE = (0.35, 1 / 5, 1 / 20, 0.004, 300.0)  # beta, sigma, gamma, mu, E0
@@ -82,3 +82,10 @@ def test_fit_with_literature_parameters_and_normalized_fitness():
     assert res.params["beta"] == pytest.approx(TRUE[0], rel=0.05)
     assert res.params["mu"] == pytest.approx(TRUE[3], rel=0.1)
     assert "fitness_norm" in res.rmsd.columns
+
+
+def test_pianesi_pojer_fitness_uses_deaths_and_recovered():
+    obs = synthetic_observations(30)
+    sim = pd.DataFrame({"D": obs["deceduti"] + 10, "R": obs["dimessi_guariti"] + 100,
+                        "I": obs["totale_positivi"] + 1e6})  # I non deve contare
+    assert pianesi_pojer_fitness(sim, obs) == pytest.approx(0.9 * 10 + 0.1 * 100)

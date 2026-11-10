@@ -1,7 +1,9 @@
 """Fitting del SEIRD con β costante (baseline) su una finestra temporale.
 
-Fitness di default come in Pianesi e Pojer: 0.9 * RMSD(decessi) + 0.1 * RMSD(infetti),
-dove D si confronta con `deceduti` e I con `totale_positivi`.
+Fitness di default: 0.9 * RMSD(decessi) + 0.1 * RMSD(infetti), dove D si confronta con
+`deceduti` e I con `totale_positivi`. È quella descritta nel testo di Pianesi e Pojer;
+il loro codice però calcola 0.9 * RMSD(decessi) + 0.1 * RMSD(guariti), vedi
+`pianesi_pojer_fitness`.
 In alternativa `normalized_fitness`: ogni RMSD diviso per la deviazione standard dei dati
 di training, così i due termini hanno la stessa scala.
 Ottimizzatore: differential evolution (scipy), un algoritmo evolutivo.
@@ -16,7 +18,7 @@ from scipy.optimize import differential_evolution
 from .data import TRENTO_POPULATION
 from .model import COMPARTMENTS, SEIRDParams, simulate
 
-WEIGHTS = {"deceduti": 0.9, "totale_positivi": 0.1}
+WEIGHTS = {"deceduti": 0.9, "totale_positivi": 0.1}  # come nel testo del paper, non nel codice
 PARAM_NAMES = ["beta", "sigma", "gamma", "mu", "E0"]
 
 # Intervalli plausibili (tassi giornalieri)
@@ -71,6 +73,17 @@ def rmsd(a, b) -> float:
 def fitness(sim: pd.DataFrame, obs: pd.DataFrame, weights=WEIGHTS) -> float:
     return (weights["deceduti"] * rmsd(sim["D"], obs["deceduti"])
             + weights["totale_positivi"] * rmsd(sim["I"], obs["totale_positivi"]))
+
+
+def pianesi_pojer_fitness(sim: pd.DataFrame, obs: pd.DataFrame) -> float:
+    """Fitness calcolata davvero nel codice di Pianesi e Pojer: decessi e guariti.
+
+    Repo LunaBaozi/SEIRD-covid-models-with-GAs, SEIRD_model/seird_problem.py e runner.py:
+    obiettivi [RMSE_D, RMSE_R, RMSE_I], pesi [0.9, 0.1] applicati ai primi due.
+    Con i loro parametri riproduce il 12.50 della loro Tabella I. Serve solo per il
+    confronto con il paper.
+    """
+    return 0.9 * rmsd(sim["D"], obs["deceduti"]) + 0.1 * rmsd(sim["R"], obs["dimessi_guariti"])
 
 
 def data_scale(obs: pd.DataFrame, cols=tuple(NORM_WEIGHTS)) -> dict:
