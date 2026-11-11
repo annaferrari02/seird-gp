@@ -43,6 +43,9 @@ def reference(df, start, end, sigma_days):
 
 def job(args):
     problem, config, seed, cfg, out = args
+    if out.exists():  # run già fatta: si può interrompere e riprendere
+        print(f"{config} seed {seed}: già fatta, salto", flush=True)
+        return out
     t0 = time.time()
     front, log = run_gp(problem, CONFIGS[config], cfg, seed=seed)
     save_front(front, out)

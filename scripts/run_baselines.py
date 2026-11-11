@@ -60,10 +60,15 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser()
     p.add_argument("workers", nargs="?", type=int, default=2)
     p.add_argument("--redo", nargs="*", default=[], help='coppie "finestra|baseline" da rifare')
+    p.add_argument("--all-models-sigma", nargs="*", default=[], metavar="FINESTRA|σ",
+                   help='tutte le baseline anche per altri σ, es. "set20–gen21|σ = 1/4 (latenza)"')
     args = p.parse_args()
 
     keys = [(w, m, REF) for w in WINDOWS for m in MODELS]
     keys += [(w, "costante", s) for w in WINDOWS for s in SIGMAS if s != REF]
+    for item in args.all_models_sigma:  # serve per confrontare il GP alla pari con altri σ
+        w, s = item.split("|")
+        keys += [(w, m, s) for m in MODELS if (w, m, s) not in keys]
     done = pickle.load(open(OUT, "rb")) if OUT.exists() else {}
     redo = {tuple(x.split("|")) for x in args.redo}
     todo = [k for k in keys if k not in done or (k[0], k[1]) in redo]
