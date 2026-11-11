@@ -99,6 +99,7 @@ class Problem:
     E0: float | None             # None: E0 stimato per ogni formula (come nelle baseline)
     rates: pd.DataFrame          # γ, μ dai dati, congelati dopo il training
     beta_ref: float = 1.0        # β della baseline costante: β(t) = beta_ref · exp(g)
+    max_abs_g: float | None = None  # vincolo di plausibilità (None = nessuno), vedi `plausible`
     N: float = TRENTO_POPULATION
     scale: dict = field(init=False)
 
@@ -136,6 +137,8 @@ class Problem:
         in [0, E0_max] con una ricerca in una dimensione (circa 15–20 simulazioni): E0 e la
         forma di β sono legati, e con E0 fisso le formule buone risultano pessime."""
         try:
+            if not self.plausible(func, terminals):
+                return BAD, np.nan
             b = self.beta(func, terminals, self.n_train)
             if self.E0 is not None:
                 return self._error_given_E0(b, self.E0), self.E0
@@ -144,6 +147,19 @@ class Problem:
             return float(res.fun), float(res.x)
         except (FloatingPointError, RuntimeError, ValueError, OverflowError):
             return BAD, np.nan
+
+    def plausible(self, func, terminals) -> bool:
+        """Vincolo di plausibilità (death penalty, lezione sui vincoli): |g| ≤ max_abs_g, cioè
+        β fra β_cost·e^(−max_abs_g) e β_cost·e^(max_abs_g), su TUTTA la finestra. Usa solo gli
+        input (t e mobilità, noti anche nel test), mai gli esiti: non viola la regola sul test.
+        Scarta le formule con singolarità, es. c / (2.2 − t), che piegano β sul training e
+        divergono fuori (nella prova con σ = 1/3: errori di test fino a 150)."""
+        if self.max_abs_g is None:
+            return True
+        args = [self.cols[c] for c in terminals]
+        with np.errstate(all="ignore"):
+            g = np.broadcast_to(np.asarray(func(*args), float), (len(self.obs),))
+        return bool(np.all(np.isfinite(g)) and np.abs(g).max() <= self.max_abs_g)
 
     def train_error(self, func, terminals) -> float:
         return self.fit(func, terminals)[0]
@@ -163,7 +179,8 @@ class Problem:
 
 
 def make_problem(df: pd.DataFrame, inputs: pd.DataFrame, start: str, end: str, sigma: float,
-                 beta_ref: float, E0: float | None = None, train_frac: float = 2 / 3) -> Problem:
+                 beta_ref: float, E0: float | None = None, train_frac: float = 2 / 3,
+                 max_abs_g: float | None = None) -> Problem:
     """Prepara la finestra: terminali (t in mesi + mobilità), γ(t), μ(t) congelati nel test."""
     obs = df.loc[start:end]
     n_train = max(2, int(round(len(obs) * train_frac)))
@@ -172,7 +189,7 @@ def make_problem(df: pd.DataFrame, inputs: pd.DataFrame, start: str, end: str, s
         raise ValueError("Input di mobilità mancanti nella finestra")
     X["t"] = np.arange(len(obs)) / T_SCALE
     rates = freeze_after(empirical_rates(df).loc[obs.index, ["gamma", "mu"]], obs.index[n_train - 1])
-    return Problem(obs, n_train, X, sigma, E0, rates, beta_ref)
+    return Problem(obs, n_train, X, sigma, E0, rates, beta_ref, max_abs_g)
 
 
 # --- Algoritmo -------------------------------------------------------------------------------

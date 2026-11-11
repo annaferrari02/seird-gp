@@ -62,3 +62,12 @@ def test_gp_recovers_mobility_effect():
     assert best["terminali usati"] == ["work_lag0"]
     assert front["nodi"].is_monotonic_increasing
     assert knee(front) in front.index
+
+
+def test_plausibility_constraint_rejects_singularities():
+    problem = synthetic_problem(lambda X: -2.0 + 1.5 * X["work_lag0"])
+    problem.max_abs_g = 1.5
+    # vicino a t = 2 mesi la formula diverge: scartata anche se il guaio è fuori dal training
+    assert problem.train_error(lambda t: 0.05 / (2.0 - t + 1e-3), ["t"]) >= 1e5
+    # la formula vera resta ammessa (|1.5 · work| ≤ 0.75)
+    assert problem.train_error(lambda work_lag0: 1.5 * work_lag0, ["work_lag0"]) < 1e-6

@@ -70,13 +70,16 @@ if __name__ == "__main__":
     p.add_argument("--gen", type=int, default=50)
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--tag", default="", help="prefisso dei file di output")
+    p.add_argument("--max-abs-g", type=float, default=None,
+                   help="vincolo di plausibilità: |g| ≤ valore su tutta la finestra (es. 1.5)")
     a = p.parse_args()
 
     df = pd.read_csv(PROCESSED_DIR / "trento_clean.csv", index_col=0, parse_dates=True)
     E0, beta_ref = reference(df, a.start, a.end, a.sigma)
     print(f"Finestra {a.start} – {a.end}, σ = 1/{a.sigma:g}: β_cost = {beta_ref:.4f} "
           f"(E0 stimato per ogni formula)", flush=True)
-    problem = make_problem(df, build_gp_inputs(load_mobility()), a.start, a.end, 1 / a.sigma, beta_ref)
+    problem = make_problem(df, build_gp_inputs(load_mobility()), a.start, a.end, 1 / a.sigma, beta_ref,
+                           max_abs_g=a.max_abs_g)
     cfg = GPConfig(pop_size=a.pop, n_offspring=a.pop, n_gen=a.gen)
     name = f"{a.tag}{a.start}_{a.end}_s{a.sigma:g}"
     jobs = [(problem, c, s, cfg, GP_RESULTS_DIR / f"{name}_{c}_seed{s}.json") for c in a.configs for s in a.seeds]
