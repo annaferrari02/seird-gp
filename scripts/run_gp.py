@@ -1,6 +1,6 @@
 """Run del GP su una finestra: più configurazioni di terminali e più seed, in parallelo.
 
-E0 e β_cost vengono dalla baseline costante della stessa finestra e dello stesso σ
+β_cost viene dalla baseline costante della stessa finestra e dello stesso σ
 (results/04_baseline_all.pkl, prodotto da scripts/run_baselines.py); se manca, la si stima.
 
 Uso (dalla cartella del repository, con l'ambiente attivo):
@@ -28,7 +28,7 @@ SIGMA_LABELS = {5.2: "σ = 1/5.2", 3.0: "σ = 1/3 (latenza, Europa)", 4.0: "σ =
 
 
 def reference(df, start, end, sigma_days):
-    """(E0, β_cost) della baseline costante: dal file dei risultati se c'è, altrimenti stimati."""
+    """(E0, β_cost) della baseline costante (qui serve solo β_cost): dal file dei risultati se c'è, altrimenti stimati."""
     key = (WINDOW_NAMES.get((start, end)), "costante", SIGMA_LABELS.get(sigma_days))
     path = RESULTS_DIR / "04_baseline_all.pkl"
     if path.exists() and None not in key:
@@ -71,8 +71,9 @@ if __name__ == "__main__":
 
     df = pd.read_csv(PROCESSED_DIR / "trento_clean.csv", index_col=0, parse_dates=True)
     E0, beta_ref = reference(df, a.start, a.end, a.sigma)
-    print(f"Finestra {a.start} – {a.end}, σ = 1/{a.sigma:g}: E0 = {E0:.1f}, β_cost = {beta_ref:.4f}", flush=True)
-    problem = make_problem(df, build_gp_inputs(load_mobility()), a.start, a.end, 1 / a.sigma, E0, beta_ref)
+    print(f"Finestra {a.start} – {a.end}, σ = 1/{a.sigma:g}: β_cost = {beta_ref:.4f} "
+          f"(E0 stimato per ogni formula)", flush=True)
+    problem = make_problem(df, build_gp_inputs(load_mobility()), a.start, a.end, 1 / a.sigma, beta_ref)
     cfg = GPConfig(pop_size=a.pop, n_offspring=a.pop, n_gen=a.gen)
     name = f"{a.tag}{a.start}_{a.end}_s{a.sigma:g}"
     jobs = [(problem, c, s, cfg, GP_RESULTS_DIR / f"{name}_{c}_seed{s}.json") for c in a.configs for s in a.seeds]

@@ -8,8 +8,9 @@ Scelte (11/11/2026, vedi notebook 05):
   casuali facevano esplodere l'epidemia e venivano eliminate prima di essere ottimizzate.
   Versione protetta: β fra BETA_MIN e BETA_MAX;
 - tre configurazioni di terminali: solo t, solo mobilità, t + mobilità (domanda D6);
-- σ fisso, γ(t) e μ(t) dai dati (come le baseline), E0 e β_cost fissi ai valori della
-  baseline costante nella stessa finestra;
+- σ fisso, γ(t) e μ(t) dai dati (come le baseline), β_cost dalla baseline costante nella stessa
+  finestra; E0 stimato per ogni formula (ricerca in una dimensione), come nelle baseline: con E0
+  fisso la baseline lineare in work passava da errore 0.14 a 1.54;
 - due obiettivi da minimizzare con NSGA-II: fitness normalizzata sul training e numero di
   nodi (parsimony pressure contro il bloat), profondità massima 6;
 - (μ + λ) con variazione "crossover OPPURE mutazione" (varOr), come nella lezione sul GP;
@@ -31,7 +32,7 @@ from dataclasses import dataclass, field
 import numpy as np
 import pandas as pd
 from deap import algorithms, base, creator, gp, tools
-from scipy.optimize import minimize
+from scipy.optimize import minimize, minimize_scalar
 
 from .data import RESULTS_DIR, TRENTO_POPULATION
 from .fitting import (
@@ -95,7 +96,7 @@ class Problem:
     n_train: int
     X: pd.DataFrame              # terminali, stesso indice di obs
     sigma: float
-    E0: float
+    E0: float | None             # None: E0 stimato per ogni formula (come nelle baseline)
     rates: pd.DataFrame          # γ, μ dai dati, congelati dopo il training
     beta_ref: float = 1.0        # β della baseline costante: β(t) = beta_ref · exp(g)
     N: float = TRENTO_POPULATION
@@ -103,8 +104,12 @@ class Problem:
 
     def __post_init__(self):
         self.scale = data_scale(self.obs.iloc[:self.n_train])
-        self.y0 = initial_state(self.obs, self.E0, self.N)
         self.cols = {c: self.X[c].to_numpy(float) for c in self.X}
+        # stesso intervallo per E0 delle baseline (fit_baseline, fit_beta)
+        self.E0_max = 10 * max(float(self.obs["totale_positivi"].iloc[0]), 50.0)
+        r = self.rates
+        self._params = {n: SEIRDParams(self.sigma, r["gamma"].to_numpy()[:n], r["mu"].to_numpy()[:n])
+                        for n in (self.n_train, len(self.obs))}
 
     def beta(self, func, terminals, n=None) -> np.ndarray:
         """β giornaliera della formula sui primi n giorni (tutti se n è None)."""
@@ -116,27 +121,39 @@ class Problem:
             raise FloatingPointError("formula non finita")
         return np.exp(np.clip(np.log(self.beta_ref) + g, LOG_BETA_MIN, LOG_BETA_MAX))
 
-    def simulate(self, beta: np.ndarray, n=None) -> pd.DataFrame:
+    def simulate(self, beta: np.ndarray, E0: float, n=None) -> pd.DataFrame:
         n = n or len(self.obs)
-        r = self.rates.iloc[:n]
-        y = simulate_fixed(beta, SEIRDParams(self.sigma, r["gamma"].to_numpy(), r["mu"].to_numpy()),
-                           self.y0, n)
+        y = simulate_fixed(beta, self._params[n], initial_state(self.obs, E0, self.N), n)
         return pd.DataFrame(y, index=self.obs.index[:n], columns=COMPARTMENTS)
 
-    def train_error(self, func, terminals) -> float:
-        try:
-            b = self.beta(func, terminals, self.n_train)
-            sim = self.simulate(b, self.n_train)
-        except (FloatingPointError, RuntimeError, ValueError, OverflowError):
-            return BAD
+    def _error_given_E0(self, beta_train: np.ndarray, E0: float) -> float:
+        sim = self.simulate(beta_train, E0, self.n_train)
         err = normalized_fitness(sim, self.obs.iloc[:self.n_train], scale=self.scale)
         return err if np.isfinite(err) else BAD
 
+    def fit(self, func, terminals) -> tuple:
+        """(errore sul training, E0) della formula. Se E0 non è fissato, si cerca il migliore
+        in [0, E0_max] con una ricerca in una dimensione (circa 15–20 simulazioni): E0 e la
+        forma di β sono legati, e con E0 fisso le formule buone risultano pessime."""
+        try:
+            b = self.beta(func, terminals, self.n_train)
+            if self.E0 is not None:
+                return self._error_given_E0(b, self.E0), self.E0
+            res = minimize_scalar(lambda e: self._error_given_E0(b, e), bounds=(0.0, self.E0_max),
+                                  method="bounded", options={"xatol": 0.5, "maxiter": 25})
+            return float(res.fun), float(res.x)
+        except (FloatingPointError, RuntimeError, ValueError, OverflowError):
+            return BAD, np.nan
+
+    def train_error(self, func, terminals) -> float:
+        return self.fit(func, terminals)[0]
+
     def evaluate_full(self, func, terminals) -> dict:
         """Errori su train e test e serie β(t), con le stesse misure delle baseline."""
+        _, E0 = self.fit(func, terminals)
         b = self.beta(func, terminals)
-        sim = self.simulate(b)
-        out = {"beta": pd.Series(b, index=self.obs.index), "simulation": sim}
+        sim = self.simulate(b, E0)
+        out = {"beta": pd.Series(b, index=self.obs.index), "simulation": sim, "E0": E0}
         for period, sl in {"train": slice(None, self.n_train), "test": slice(self.n_train, None)}.items():
             o, s = self.obs.iloc[sl], sim.iloc[sl]
             out[f"fitness_norm {period}"] = normalized_fitness(s, o, scale=self.scale)
@@ -146,7 +163,7 @@ class Problem:
 
 
 def make_problem(df: pd.DataFrame, inputs: pd.DataFrame, start: str, end: str, sigma: float,
-                 E0: float, beta_ref: float, train_frac: float = 2 / 3) -> Problem:
+                 beta_ref: float, E0: float | None = None, train_frac: float = 2 / 3) -> Problem:
     """Prepara la finestra: terminali (t in mesi + mobilità), γ(t), μ(t) congelati nel test."""
     obs = df.loc[start:end]
     n_train = max(2, int(round(len(obs) * train_frac)))
@@ -310,6 +327,7 @@ def run_gp(problem: Problem, terminals, cfg: GPConfig = GPConfig(), seed: int = 
         rows.append({"formula": str(ind), "nodi": int(size), "profondità": ind.height,
                      "terminali usati": sorted({n.value for n in ind
                                                 if isinstance(n, gp.Terminal) and isinstance(n.value, str)}),
+                     "E0": full["E0"],
                      **{k: v for k, v in full.items() if k.startswith(("fitness", "RMSD"))},
                      "beta": full["beta"]})
     return pd.DataFrame(rows), log
