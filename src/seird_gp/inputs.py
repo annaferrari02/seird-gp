@@ -5,7 +5,9 @@ Scelte (notebook 03):
   legate ai contatti (|r| = 0.60 sull'intero periodo, serie lisciate);
 - media mobile a 7 giorni solo all'indietro: il valore di un giorno usa solo dati fino a quel giorno;
 - normalizzazione: variazione % / 100 (-40% -> -0.4), confrontabile fra finestre;
-- ritardi 0, 3, 7, 10, 14 giorni: il GP sceglie quali usare.
+- ritardi 0, 3, 7, 10, 14 giorni: il GP sceglie quali usare. In teoria il ritardo giusto è 0
+  (l'incubazione è già nel compartimento E); i ritardi lunghi servono come diagnostica di un
+  ritardo di notifica non modellato (criterio nel notebook 03).
 
 I ritardi vanno costruiti dalla serie di mobilità originale (dal 15/02/2020), non dal file
 unito con i dati COVID (dal 24/02/2020), altrimenti nella finestra 2020 mancano i ritardi lunghi.
