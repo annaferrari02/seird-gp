@@ -59,8 +59,53 @@ def initial_state(obs: pd.DataFrame, E0: float, N: float = TRENTO_POPULATION) ->
     return np.array([N - E0 - I0 - R0 - D0, E0, I0, R0, D0], dtype=float)
 
 
-def simulate_window(theta, obs: pd.DataFrame, N: float = TRENTO_POPULATION) -> pd.DataFrame:
+RATE_COLUMNS = {"gamma": "dimessi_guariti", "mu": "deceduti"}
+
+
+def empirical_rates(df: pd.DataFrame, window: int = 7) -> pd.DataFrame:
+    """γ(t) e μ(t) letti dai dati: dR/dt = γ I e dD/dt = μ I.
+
+    γ(t) = guariti nuovi negli ultimi `window` giorni / somma dei positivi negli stessi giorni
+    (idem μ con i decessi). Media mobile solo all'indietro: il valore di un giorno usa
+    soltanto dati fino a quel giorno. Giorni senza positivi: ultimo valore valido.
+    `df` deve essere la serie intera, così l'inizio di una finestra usa anche i giorni prima.
+    """
+    # i nuovi del giorno k nascono nell'intervallo [k-1, k]: positivi medi su quell'intervallo
+    mid = (df["totale_positivi"] + df["totale_positivi"].shift(1).fillna(df["totale_positivi"])) / 2
+    positives = mid.rolling(window, min_periods=1).sum()
+    out = {}
+    for name, col in RATE_COLUMNS.items():
+        new = df[col].diff().clip(lower=0).rolling(window, min_periods=1).sum()
+        out[name] = (new / positives.where(positives > 0)).ffill().bfill().fillna(0.0)
+    return pd.DataFrame(out, index=df.index)
+
+
+def freeze_after(rates: pd.DataFrame, last_known: pd.Timestamp) -> pd.DataFrame:
+    """Dopo `last_known` i tassi restano all'ultimo valore noto (niente dati del futuro nel test)."""
+    out = rates.copy()
+    out.loc[out.index > last_known] = out.loc[:last_known].iloc[-1].values
+    return out
+
+
+def _daily(values: np.ndarray):
+    """Funzione del tempo (giorni dall'inizio finestra), lineare fra i valori giornalieri.
+
+    Lineare e non a gradini: senza salti l'integratore fa meno passi.
+    """
+    x = np.arange(len(values), dtype=float)
+    return lambda t: float(np.interp(t, x, values))
+
+
+def simulate_window(theta, obs: pd.DataFrame, N: float = TRENTO_POPULATION,
+                    rates: pd.DataFrame | None = None) -> pd.DataFrame:
+    """Simula la finestra. Con `rates` (colonne gamma e/o mu, stesso indice di `obs`)
+    quei tassi variano nel tempo e i valori corrispondenti in `theta` sono ignorati."""
     beta, sigma, gamma, mu, E0 = theta
+    if rates is not None:
+        if "gamma" in rates:
+            gamma = _daily(rates["gamma"].to_numpy())
+        if "mu" in rates:
+            mu = _daily(rates["mu"].to_numpy())
     t = np.arange(len(obs), dtype=float)
     y = simulate(lambda _: beta, SEIRDParams(sigma, gamma, mu), initial_state(obs, E0, N), t)
     return pd.DataFrame(y, index=obs.index, columns=COMPARTMENTS)
@@ -118,18 +163,27 @@ def relative_fitness(sim: pd.DataFrame, obs: pd.DataFrame) -> float:
 
 def fit_baseline(df: pd.DataFrame, start: str, end: str, train_frac: float = 1.0,
                  seed: int = 0, bounds: dict | None = None, fixed: dict | None = None,
-                 fitness_fn=None, maxiter: int = 300,
+                 fitness_fn=None, maxiter: int = 300, rates_from_data: tuple = (),
                  N: float = TRENTO_POPULATION) -> FitResult:
     """Stima β, σ, γ, μ, E0 sulla prima `train_frac` della finestra [start, end].
 
     La simulazione copre tutta la finestra: i giorni dopo il training servono come test.
     `fixed` blocca dei parametri a un valore (es. {"sigma": 1/5.2});
     `fitness_fn` sostituisce la fitness usata per l'ottimizzazione.
+    `rates_from_data` ("gamma", "mu" o entrambi): quei tassi non si stimano ma si leggono
+    dai dati con `empirical_rates`, congelati all'ultimo giorno di training nel test.
+    In `params` compare la loro media sul training, usata da `derived()`.
     """
     fitness_fn = fitness_fn or fitness
     obs = df.loc[start:end]
     n_train = max(2, int(round(len(obs) * train_frac)))
     train = obs.iloc[:n_train]
+
+    rates = None
+    if rates_from_data:
+        rates = empirical_rates(df).loc[obs.index, list(rates_from_data)]
+        rates = freeze_after(rates, train.index[-1])
+        fixed = {**(fixed or {}), **rates.iloc[:n_train].mean().to_dict()}
 
     b = {**DEFAULT_BOUNDS, **(bounds or {})}
     I0 = obs["totale_positivi"].iloc[0]
@@ -137,16 +191,17 @@ def fit_baseline(df: pd.DataFrame, start: str, end: str, train_frac: float = 1.0
     for k, v in (fixed or {}).items():
         b[k] = (v, v)
     box = [b[k] for k in PARAM_NAMES]
+    train_rates = None if rates is None else rates.iloc[:n_train]
 
     def objective(theta):
         try:
-            return fitness_fn(simulate_window(theta, train, N), train)
+            return fitness_fn(simulate_window(theta, train, N, train_rates), train)
         except RuntimeError:
             return 1e12
 
     res = differential_evolution(objective, box, seed=seed, maxiter=maxiter,
                                  tol=1e-7, polish=True)
-    sim = simulate_window(res.x, obs, N)
+    sim = simulate_window(res.x, obs, N, rates)
 
     periods = {"train": slice(None, n_train), "test": slice(n_train, None)}
     train_scale = data_scale(train)
@@ -167,7 +222,8 @@ def fit_baseline(df: pd.DataFrame, start: str, end: str, train_frac: float = 1.0
         rmsd=pd.DataFrame(table).T,
         simulation=sim,
         extra={"n_eval": res.nfev, "success": res.success,
-               "at_bound": at_bounds(dict(zip(PARAM_NAMES, res.x)), b, fixed)},
+               "at_bound": at_bounds(dict(zip(PARAM_NAMES, res.x)), b, fixed),
+               "rates": rates},
     )
 
 

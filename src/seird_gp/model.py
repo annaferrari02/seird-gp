@@ -1,7 +1,7 @@
 """Modello SEIRD con tasso di trasmissione β(t) variabile nel tempo."""
 
 from dataclasses import dataclass
-from typing import Callable
+from typing import Callable, Union
 
 import numpy as np
 from scipy.integrate import solve_ivp
@@ -14,13 +14,17 @@ class SEIRDParams:
     """Parametri costanti del modello (tassi giornalieri).
 
     sigma: 1 / periodo di incubazione
-    gamma: tasso di guarigione
-    mu:    tasso di mortalità degli infetti
+    gamma: tasso di guarigione (costante o funzione del tempo)
+    mu:    tasso di mortalità degli infetti (costante o funzione del tempo)
     """
 
     sigma: float
-    gamma: float
-    mu: float
+    gamma: Union[float, Callable[[float], float]]
+    mu: Union[float, Callable[[float], float]]
+
+
+def _at(rate, t: float) -> float:
+    return rate(t) if callable(rate) else rate
 
 
 def seird_rhs(t: float, y: np.ndarray, beta: Callable[[float], float],
@@ -28,12 +32,13 @@ def seird_rhs(t: float, y: np.ndarray, beta: Callable[[float], float],
     S, E, I, R, D = y
     N = S + E + I + R  # i decessi escono dalla popolazione attiva
     infections = beta(t) * S * I / N
+    gamma, mu = _at(p.gamma, t), _at(p.mu, t)
     return np.array([
         -infections,
         infections - p.sigma * E,
-        p.sigma * E - (p.gamma + p.mu) * I,
-        p.gamma * I,
-        p.mu * I,
+        p.sigma * E - (gamma + mu) * I,
+        gamma * I,
+        mu * I,
     ])
 
 

@@ -3,8 +3,8 @@ import pandas as pd
 import pytest
 
 from seird_gp.fitting import (
-    TRENTO_POPULATION, data_scale, fit_baseline, initial_state, normalized_fitness,
-    pianesi_pojer_fitness, simulate_window,
+    TRENTO_POPULATION, data_scale, empirical_rates, fit_baseline, freeze_after, initial_state,
+    normalized_fitness, pianesi_pojer_fitness, simulate_window,
 )
 
 TRUE = (0.35, 1 / 5, 1 / 20, 0.004, 300.0)  # beta, sigma, gamma, mu, E0
@@ -89,3 +89,36 @@ def test_pianesi_pojer_fitness_uses_deaths_and_recovered():
     sim = pd.DataFrame({"D": obs["deceduti"] + 10, "R": obs["dimessi_guariti"] + 100,
                         "I": obs["totale_positivi"] + 1e6})  # I non deve contare
     assert pianesi_pojer_fitness(sim, obs) == pytest.approx(0.9 * 10 + 0.1 * 100)
+
+
+def test_empirical_rates_recover_constant_rates():
+    # su dati sintetici con γ e μ costanti, il rapporto nuovi/positivi li ritrova
+    obs = synthetic_observations()
+    rates = empirical_rates(obs).iloc[10:]
+    assert rates["gamma"].to_numpy() == pytest.approx(TRUE[2], rel=0.05)
+    assert rates["mu"].to_numpy() == pytest.approx(TRUE[3], rel=0.05)
+
+
+def test_empirical_rates_use_only_past_data():
+    obs = synthetic_observations()
+    changed = obs.copy()
+    changed.iloc[30:, :] *= 3  # cambia solo il futuro rispetto al giorno 29
+    a, b = empirical_rates(obs).iloc[:30], empirical_rates(changed).iloc[:30]
+    pd.testing.assert_frame_equal(a, b)
+
+
+def test_freeze_after_keeps_last_known_value():
+    obs = synthetic_observations()
+    rates = freeze_after(empirical_rates(obs), obs.index[39])
+    assert (rates.iloc[40:] == rates.iloc[39]).all().all()
+
+
+def test_fit_with_rates_from_data():
+    # γ e μ dai dati, σ fissato: restano β ed E0
+    obs = synthetic_observations()
+    res = fit_baseline(obs, obs.index[0], obs.index[-1], train_frac=0.7, maxiter=150,
+                       fixed={"sigma": TRUE[1]}, fitness_fn=normalized_fitness,
+                       rates_from_data=("gamma", "mu"))
+    assert res.params["beta"] == pytest.approx(TRUE[0], rel=0.05)
+    assert res.params["gamma"] == pytest.approx(TRUE[2], rel=0.05)
+    assert res.extra["rates"].index.equals(obs.index)
