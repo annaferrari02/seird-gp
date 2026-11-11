@@ -39,6 +39,16 @@ def test_piecewise_recovers_steps_and_ignores_future_breaks():
     assert res.extra["beta"].iloc[-1] == pytest.approx(res.params["beta_1"])
 
 
+def test_piecewise_skips_periods_too_short_in_training():
+    # training = primi 63 giorni (IDX[0]..IDX[62]); un periodo che inizia a IDX[58] ha 5 giorni
+    model = piecewise_beta([IDX[30], IDX[58]], min_train_days=7)
+    assert model.active_params(IDX, IDX[62]) == ("beta_0", "beta_1")
+    f = model.build({"beta_0": 0.3, "beta_1": 0.2, "beta_2": np.nan}, IDX, IDX[62])
+    assert f(80) == 0.2                          # il periodo corto resta al β precedente
+    assert piecewise_beta([IDX[30], IDX[56]]).active_params(IDX, IDX[62]) == \
+        ("beta_0", "beta_1", "beta_2")           # 7 giorni: si stima
+
+
 def test_linear_mobility_recovers_coefficient():
     m = pd.DataFrame({"x": -0.5 * (np.arange(len(IDX)) > 40)}, index=IDX)  # mobilità a gradino
     true = 0.32 * (1 + 1.2 * m["x"].to_numpy())

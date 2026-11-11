@@ -57,19 +57,25 @@ def load_restrictions(path: Path = RESTRICTIONS_PATH) -> pd.DataFrame:
     return df.sort_values("inizio").reset_index(drop=True)
 
 
-def piecewise_beta(breaks) -> BetaModel:
+MIN_TRAIN_DAYS = 7
+
+
+def piecewise_beta(breaks, min_train_days: int = MIN_TRAIN_DAYS) -> BetaModel:
     """Un β per ogni periodo. `breaks` = date di inizio dei periodi dopo il primo.
 
-    I periodi che iniziano dopo la fine del training non hanno dati per stimare il loro β:
-    restano al β dell'ultimo periodo del training (nessuna informazione dal futuro).
-    I parametri si chiamano beta_0, beta_1, ...; quelli dei periodi solo-test non si stimano.
+    Un periodo ha un suo β solo se ha almeno `min_train_days` giorni nel training.
+    Altrimenti resta al β del periodo precedente: i periodi che iniziano nel test non hanno
+    dati, e quelli che iniziano a ridosso della fine del training ne hanno troppo pochi
+    (con 5 giorni, finestra 2021, il β stimato era instabile e si trascinava in tutto il test).
+    I parametri si chiamano beta_0, beta_1, ...; quelli dei periodi non stimabili non si usano.
     """
     breaks = pd.DatetimeIndex(sorted(pd.to_datetime(list(breaks))))
     names = tuple(f"beta_{k}" for k in range(len(breaks) + 1))
 
     def inside(index, train_end):
-        """Inizi di periodo che cadono dentro il training (dopo il primo giorno)."""
-        return [b for b in breaks if index[0] < b <= train_end]
+        """Inizi di periodo dentro il training con almeno `min_train_days` giorni di dati."""
+        return [b for b in breaks
+                if index[0] < b and (train_end - b).days + 1 >= min_train_days]
 
     def build(v, index, train_end):
         offsets = np.array([(b - index[0]).days for b in inside(index, train_end)], float)
