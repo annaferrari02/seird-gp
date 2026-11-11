@@ -16,7 +16,7 @@ import pandas as pd
 from scipy.optimize import differential_evolution
 
 from .data import TRENTO_POPULATION
-from .model import COMPARTMENTS, SEIRDParams, simulate
+from .model import COMPARTMENTS, SEIRDParams, simulate, simulate_fixed
 
 WEIGHTS = {"deceduti": 0.9, "totale_positivi": 0.1}  # come nel testo del paper, non nel codice
 PARAM_NAMES = ["beta", "sigma", "gamma", "mu", "E0"]
@@ -99,12 +99,26 @@ def _daily(values: np.ndarray):
 
 
 def simulate_window(theta, obs: pd.DataFrame, N: float = TRENTO_POPULATION,
-                    rates: pd.DataFrame | None = None, beta_fn=None) -> pd.DataFrame:
+                    rates: pd.DataFrame | None = None, beta_fn=None,
+                    method: str = "lsoda") -> pd.DataFrame:
     """Simula la finestra. Con `rates` (colonne gamma e/o mu, stesso indice di `obs`)
     quei tassi variano nel tempo e i valori corrispondenti in `theta` sono ignorati.
-    Con `beta_fn` (funzione dei giorni dall'inizio finestra) β varia nel tempo e il β
-    in `theta` è ignorato: serve alle baseline di `beta_models.py` e al GP."""
+    Con `beta_fn` (funzione dei giorni dall'inizio finestra, oppure vettore di valori
+    giornalieri con `method="rk4"`) β varia nel tempo e il β in `theta` è ignorato:
+    serve alle baseline di `beta_models.py` e al GP.
+    `method`: "lsoda" (solve_ivp adattivo, default) o "rk4" (`model.simulate_fixed`,
+    passo fisso, molto più veloce; stessi risultati entro ~1e-4 relativo, vedi i test)."""
     beta, sigma, gamma, mu, E0 = theta
+    y0 = initial_state(obs, E0, N)
+    if method == "rk4":
+        if rates is not None:
+            gamma = rates["gamma"].to_numpy() if "gamma" in rates else gamma
+            mu = rates["mu"].to_numpy() if "mu" in rates else mu
+        b = beta if beta_fn is None else beta_fn
+        y = simulate_fixed(b, SEIRDParams(sigma, gamma, mu), y0, len(obs))
+        return pd.DataFrame(y, index=obs.index, columns=COMPARTMENTS)
+    if method != "lsoda":
+        raise ValueError(f"Metodo sconosciuto: {method}")
     if rates is not None:
         if "gamma" in rates:
             gamma = _daily(rates["gamma"].to_numpy())
@@ -112,7 +126,7 @@ def simulate_window(theta, obs: pd.DataFrame, N: float = TRENTO_POPULATION,
             mu = _daily(rates["mu"].to_numpy())
     t = np.arange(len(obs), dtype=float)
     beta_fn = beta_fn or (lambda _: beta)
-    y = simulate(beta_fn, SEIRDParams(sigma, gamma, mu), initial_state(obs, E0, N), t)
+    y = simulate(beta_fn, SEIRDParams(sigma, gamma, mu), y0, t)
     return pd.DataFrame(y, index=obs.index, columns=COMPARTMENTS)
 
 
