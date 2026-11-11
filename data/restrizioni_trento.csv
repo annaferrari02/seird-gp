@@ -1,0 +1,20 @@
+# Provvedimenti che cambiano il livello di restrizione in P.A. Trento (inizio di ogni periodo).
+# Usata dalla baseline a tratti (beta_models.piecewise_beta) e per interpretare beta(t) (D4).
+# Zone colorate dal 6/11/2020: dati ufficiali DPC, https://github.com/pcm-dpc/COVID-19/tree/master/aree
+#   (elaborazione storica: https://github.com/ondata/covid19italia/tree/master/webservices/COVID-19Aree)
+# Prima del 6/11/2020: DPCM nazionali (data di entrata in vigore).
+# Limite: mancano le ordinanze della Provincia autonoma che si discostano dalla classificazione nazionale.
+# Natale 2020 (24/12-6/1) e 7-15/1/2021 sono un periodo unico ciascuno: i colori cambiavano ogni 1-4 giorni.
+inizio,livello,provvedimento,fonte
+2020-03-10,lockdown,DPCM 09/03/2020 (tutta Italia zona protetta),GU n. 62 del 09/03/2020
+2020-03-12,lockdown,DPCM 11/03/2020 (chiusura attività commerciali non essenziali),GU n. 64 del 11/03/2020
+2020-03-23,lockdown,DPCM 22/03/2020 (chiusura attività produttive non essenziali),GU n. 76 del 22/03/2020
+2020-10-26,misure nazionali,DPCM 24/10/2020 (bar e ristoranti chiusi alle 18; palestre chiuse),GU n. 265 del 25/10/2020
+2020-11-06,gialla,DPCM 03/11/2020,DPC aree
+2020-12-24,rossa/arancione,DL 18/12/2020 n. 172 (rossa nei festivi e prefestivi; arancione 28-30/12 e 4/1),DPC aree
+2021-01-07,gialla,DL 05/01/2021 n. 1 (arancione 9-10/1); poi DPCM 14/01/2021,DPC aree
+2021-02-14,arancione,Ordinanza 12/02/2021,DPC aree
+2021-03-15,rossa,Ordinanza 13/03/2021,DPC aree
+2021-04-07,arancione,DL 01/04/2021 n. 44,DPC aree
+2021-04-26,gialla,Ordinanza 23/04/2021,DPC aree
+2021-06-14,bianca,Ordinanza 11/06/2021,DPC aree

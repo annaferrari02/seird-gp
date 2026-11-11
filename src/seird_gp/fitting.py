@@ -31,6 +31,8 @@ DEFAULT_BOUNDS = {
 
 # Parametri da letteratura
 # Incubazione media 5.2 giorni (IC 95% 4.1-7.0): Li et al., NEJM 2020, doi:10.1056/NEJMoa2001316
+# Meta-analisi: 6.38 gg (Elias et al., IJID 2021, 99 studi); 6.2 gg (Dhouib et al., Syst Rev 2021).
+# Sensibilità su σ (1/4 latenza, 1/5.2, 1/6.4) nel notebook 04.
 SIGMA_LIT = 1 / 5.2
 
 # Pesi della fitness normalizzata: nessuna preferenza a priori fra decessi e positivi
@@ -97,9 +99,11 @@ def _daily(values: np.ndarray):
 
 
 def simulate_window(theta, obs: pd.DataFrame, N: float = TRENTO_POPULATION,
-                    rates: pd.DataFrame | None = None) -> pd.DataFrame:
+                    rates: pd.DataFrame | None = None, beta_fn=None) -> pd.DataFrame:
     """Simula la finestra. Con `rates` (colonne gamma e/o mu, stesso indice di `obs`)
-    quei tassi variano nel tempo e i valori corrispondenti in `theta` sono ignorati."""
+    quei tassi variano nel tempo e i valori corrispondenti in `theta` sono ignorati.
+    Con `beta_fn` (funzione dei giorni dall'inizio finestra) β varia nel tempo e il β
+    in `theta` è ignorato: serve alle baseline di `beta_models.py` e al GP."""
     beta, sigma, gamma, mu, E0 = theta
     if rates is not None:
         if "gamma" in rates:
@@ -107,7 +111,8 @@ def simulate_window(theta, obs: pd.DataFrame, N: float = TRENTO_POPULATION,
         if "mu" in rates:
             mu = _daily(rates["mu"].to_numpy())
     t = np.arange(len(obs), dtype=float)
-    y = simulate(lambda _: beta, SEIRDParams(sigma, gamma, mu), initial_state(obs, E0, N), t)
+    beta_fn = beta_fn or (lambda _: beta)
+    y = simulate(beta_fn, SEIRDParams(sigma, gamma, mu), initial_state(obs, E0, N), t)
     return pd.DataFrame(y, index=obs.index, columns=COMPARTMENTS)
 
 
