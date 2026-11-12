@@ -1,6 +1,6 @@
 """Genetic programming per β(t) (DEAP + NSGA-II).
 
-Scelte (11/11/2026, vedi notebook 05):
+Scelte (11/11/2026, vedi notebook 06; validazione su dati sintetici nel notebook 05):
 - β(t) = β_cost · exp(g(x(t))), con g l'albero evoluto e β_cost il β della baseline costante
   nella stessa finestra: sempre positiva, effetti moltiplicativi ("10 punti di mobilità in meno
   moltiplicano β per e^(−0.1c)"), e g = 0 riproduce la baseline costante. Senza β_cost il GP
