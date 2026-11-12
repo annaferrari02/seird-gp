@@ -7,8 +7,9 @@ Per ogni scenario di `seird_gp.synthetic.SCENARIOS`:
 
 Uso (dalla cartella del repository, con l'ambiente attivo):
     python scripts/run_synthetic.py --sigma 4 --scenarios A B C D --seeds 1 2 3 4 5 --workers 8
+    (con --max-abs-g 2 --tag vinc_ per il vincolo di plausibilità, come nel notebook 06)
 Risultati: results/synthetic/<scenario>.csv e .json (dati, verità, oracolo),
-           results/gp_synth/<scenario>_<config>_seed<k>.json (Pareto front).
+           results/gp_synth/<tag><scenario>_s<σ>_<config>_seed<k>.json (Pareto front).
 Riprendibile: dati e run già salvati non si rifanno (salvo --regenerate per i dati).
 """
 import argparse
@@ -79,14 +80,14 @@ def prepare(args):
 
 
 def job(args):
-    key, config, seed, cfg, start, end, sigma_days, X, out = args
+    key, config, seed, cfg, start, end, sigma_days, X, out, max_abs_g = args
     if out.exists():
         print(f"{key} {config} seed {seed}: già fatta, salto", flush=True)
         return out
     meta = load_meta(key)
     df = pickle.load(open(SYNTH_DIR / f"{key}_df.pkl", "rb"))
     problem = make_problem(df, X, start, end, 1 / sigma_days,
-                           meta["β_cost (baseline costante sui dati sintetici)"])
+                           meta["β_cost (baseline costante sui dati sintetici)"], max_abs_g=max_abs_g)
     t0 = time.time()
     front, log = run_gp(problem, CONFIGS[config], cfg, seed=seed)
     save_front(front, out)
@@ -110,6 +111,9 @@ if __name__ == "__main__":
     p.add_argument("--workers", type=int, default=2)
     p.add_argument("--noise-seed", type=int, default=0)
     p.add_argument("--regenerate", action="store_true", help="rigenera i dati sintetici")
+    p.add_argument("--tag", default="", help="prefisso dei file dei Pareto front")
+    p.add_argument("--max-abs-g", type=float, default=None,
+                   help="vincolo di plausibilità: |g| ≤ valore su tutta la finestra (es. 2)")
     a = p.parse_args()
 
     real = pd.read_csv(PROCESSED_DIR / "trento_clean.csv", index_col=0, parse_dates=True)
@@ -121,7 +125,8 @@ if __name__ == "__main__":
         list(ex.map(prepare, [(k, real, X, a.start, a.end, a.sigma, level, a.noise_seed, a.regenerate)
                               for k in a.scenarios]))
         cfg = GPConfig(pop_size=a.pop, n_offspring=a.pop, n_gen=a.gen)
-        jobs = [(k, c, s, cfg, a.start, a.end, a.sigma, X, GP_SYNTH_DIR / f"{k}_s{a.sigma:g}_{c}_seed{s}.json")
+        jobs = [(k, c, s, cfg, a.start, a.end, a.sigma, X,
+                 GP_SYNTH_DIR / f"{a.tag}{k}_s{a.sigma:g}_{c}_seed{s}.json", a.max_abs_g)
                 for k in a.scenarios for c in a.configs for s in a.seeds]
         list(ex.map(job, jobs))
     print("fatto")
