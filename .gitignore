@@ -10,8 +10,7 @@ venv/
 .ipynb_checkpoints/
 
 # Dati e risultati: si rigenerano dal codice
-data/raw/*
-data/processed/*
+
 results/*
 !data/raw/.gitkeep
 !data/processed/.gitkeep

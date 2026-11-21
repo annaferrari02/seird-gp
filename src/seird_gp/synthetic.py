@@ -180,9 +180,10 @@ def save_scenario(key: str, truth: pd.DataFrame, df: pd.DataFrame, meta: dict) -
     window = truth.index
     out = truth.add_suffix(" vero").join(df.loc[window[0]:window[-1]])
     out.to_csv(SYNTH_DIR / f"{key}.csv")
-    (SYNTH_DIR / f"{key}.json").write_text(json.dumps(meta, ensure_ascii=False, indent=1, default=str))
-
+    text = json.dumps(meta, ensure_ascii=False, indent=2,
+                      default=lambda o: o.tolist() if hasattr(o, "tolist") else str(o))
+    (SYNTH_DIR / f"{key}.json").write_text(text, encoding="utf-8")
 
 def load_meta(key: str) -> dict | None:
     path = SYNTH_DIR / f"{key}.json"
-    return json.loads(path.read_text()) if path.exists() else None
+    return json.loads(path.read_text(encoding="utf-8")) if path.exists() else None
